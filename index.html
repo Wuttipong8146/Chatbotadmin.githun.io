@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Employees</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-auth.js"></script> <!-- Firebase Auth -->
+    <link rel="icon" type="image/png" href="https://cdn.pixabay.com/photo/2017/01/31/18/58/gear-2025001_1280.png">
+<style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #f9f9f9;
+            color: #333;
+            text-align: center;
+            margin: 0;
+            padding: 0;
+        }
+        h2 {
+            color: #ff6f61;
+            margin-top: 20px;
+            font-size: 24px;
+        }
+        div.container, .login-container {
+            max-width: 450px;
+            margin: auto;
+            padding: 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+            border: 2px solid #ff6f61;
+            margin-top: 30px;
+        }
+        input {
+            padding: 12px;
+            margin: 8px 0;
+            border: 1px solid #ff6f61;
+            border-radius: 8px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s ease;
+            width: calc(100% - 24px);
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #ff3b30;
+        }
+        button {
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            background-color: #ff6f61;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+            width: 100%;
+            margin-top: 10px;
+            box-sizing: border-box;
+        }
+        button:hover {
+            background-color: #ff3b30;
+        }
+        .error-message {
+            color: red;
+            display: none; /* ซ่อนข้อความผิดพลาดโดยเริ่มต้น */
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ccc;
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #ff6f61;
+            color: white;
+            cursor: pointer;
+        }
+        .actions button {
+            background-color: #f44336;
+            margin-left: 5px;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        .actions button.reset {
+            background-color: #ff9800;
+        }
+        .status {
+            font-size: 14px;
+            padding: 4px 8px;
+            border-radius: 8px;
+        }
+        .active {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .inactive {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container" id="loginContainer">
+        <h2>Admin Login</h2>
+        <input type="email" id="adminEmail" placeholder="Enter Admin Email">
+        <input type="password" id="adminPassword" placeholder="Enter Admin Password">
+        <button id="loginBtn">Login</button>
+        <p class="error-message" id="errorMessage">รหัสผ่านหรืออีเมลไม่ถูกต้อง</p> <!-- ข้อความผิดพลาด -->
+    </div>
+    
+    <div class="container" id="employeeContainer" style="display:none;">
+        <h2>Manage Employees</h2>
+        <input type="text" id="employeeId" placeholder="Enter Employee IDs (comma-separated)">
+        <button id="addEmployeeBtn">Add Employees</button>
+        <input type="text" id="searchEmployee" placeholder="Search Employee">
+        
+        <table id="employeeTable">
+            <thead>
+                <tr>
+                    <th onclick="sortTable(0)">Employee ID</th>
+                    <th onclick="sortTable(1)">Status</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Employees will be listed here -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Firebase config
+        const firebaseConfig = {
+          apiKey: "AIzaSyCSh5VDYLVFQ6wFXTdQCiGAjzVzZwmfFIk",
+          authDomain: "chatbot-e2d32.firebaseapp.com",
+          projectId: "chatbot-e2d32",
+          storageBucket: "chatbot-e2d32.appspot.com",
+          messagingSenderId: "30141240663",
+          appId: "1:30141240663:web:e73716a91f890601a39a12"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        const auth = firebase.auth();
+
+        let sortDirection = true; // true for ascending, false for descending
+        let loginTimeout; // ตัวแปรสำหรับจัดการ timeout
+
+        // ฟังก์ชันตรวจสอบสถานะการล็อกอิน
+        firebase.auth().onAuthStateChanged((user) => {
+            if (user) {
+                // ถ้ามีผู้ใช้ล็อกอินอยู่
+                document.getElementById('loginContainer').style.display = 'none';
+                document.getElementById('employeeContainer').style.display = 'block';
+                loadEmployees(); // โหลดข้อมูลพนักงาน
+                setLoginTimeout(); // ตั้งเวลาให้ล็อกอิน
+            } else {
+                // ถ้าไม่มีผู้ใช้ล็อกอิน
+                document.getElementById('loginContainer').style.display = 'block';
+                document.getElementById('employeeContainer').style.display = 'none';
+            }
+        });
+
+        // ฟังก์ชันตั้งเวลาให้ล็อกอิน
+        function setLoginTimeout() {
+            if (loginTimeout) clearTimeout(loginTimeout); // ล้าง timeout เก่า
+            loginTimeout = setTimeout(() => {
+                auth.signOut(); // ออกจากระบบอัตโนมัติ
+                alert('Session expired. Please log in again.');
+                location.reload(); // รีเฟรชหน้าเพื่อให้กลับไปล็อกอิน
+            }, 10 * 60 * 1000); // 10 นาที
+        }
+
+        // ฟังก์ชันตรวจสอบการล็อกอิน
+        document.getElementById('loginBtn').onclick = function() {
+            const adminEmail = document.getElementById('adminEmail').value;
+            const adminPassword = document.getElementById('adminPassword').value;
+            const errorMessage = document.getElementById('errorMessage');
+
+            // ใช้ Firebase Auth ในการล็อกอิน
+            auth.signInWithEmailAndPassword(adminEmail, adminPassword)
+                .then((userCredential) => {
+                    alert('Login successful');
+                    document.getElementById('loginContainer').style.display = 'none';
+                    document.getElementById('employeeContainer').style.display = 'block';
+                    loadEmployees(); // โหลดข้อมูลพนักงาน
+                    errorMessage.style.display = 'none'; // ซ่อนข้อความผิดพลาด
+                    setLoginTimeout(); // ตั้งเวลาให้ล็อกอิน
+                })
+                .catch((error) => {
+                    errorMessage.style.display = 'block'; // แสดงข้อความผิดพลาด
+                    console.error('Login failed: ', error.message);
+                });
+        };
+
+        // ฟังก์ชันเพิ่มพนักงาน
+        document.getElementById('addEmployeeBtn').onclick = function() {
+            const employeeIds = document.getElementById('employeeId').value.split(',').map(id => id.trim());
+            const promises = [];
+
+            employeeIds.forEach(employeeId => {
+                if (employeeId) {
+                    // เพิ่มพนักงานใหม่ใน Firestore
+                    const promise = db.collection('users').doc(employeeId).set({
+                        password: '0000',
+                        userId: '',
+                        status: 'inactive',
+                        employeeId: employeeId
+                    });
+                    promises.push(promise);
+                }
+            });
+
+            // รอให้เพิ่มพนักงานเสร็จทั้งหมด
+            Promise.all(promises).then(() => {
+                alert('Employees added successfully');
+                loadEmployees(); // รีโหลดรายการพนักงาน
+                document.getElementById('employeeId').value = ''; // ล้าง input
+            }).catch((error) => {
+                console.error('Error adding employees:', error);
+            });
+        };
+
+        // ฟังก์ชันโหลดพนักงาน
+        function loadEmployees(searchQuery = '') {
+            db.collection('users').get().then((querySnapshot) => {
+                const tbody = document.querySelector('#employeeTable tbody');
+                tbody.innerHTML = ''; // ล้างแถวที่มีอยู่
+
+                querySnapshot.forEach((doc) => {
+                    const employeeId = doc.id;
+                    const employeeData = doc.data();
+                    const statusClass = employeeData.userId ? 'active' : 'inactive';
+                    const statusText = employeeData.userId ? 'Active' : 'Inactive';
+
+                    // ถ้ามีการค้นหา จะกรองพนักงานที่ตรงกับคำค้นหา
+                    if (employeeId.toLowerCase().includes(searchQuery.toLowerCase())) {
+                        const tr = document.createElement('tr');
+                        tr.innerHTML = `
+                            <td>${employeeId}</td>
+                            <td><span class="status ${statusClass}">${statusText}</span></td>
+                            <td class="actions">
+                                <button onclick="deleteEmployee('${employeeId}')">Delete</button>
+                                <button class="reset" onclick="resetPassword('${employeeId}')">Reset Password</button>
+                            </td>
+                        `;
+                        tbody.appendChild(tr);
+                    }
+                });
+            }).catch((error) => {
+                console.error('Error loading employees:', error);
+            });
+        }
+
+        // ฟังก์ชันลบพนักงาน
+        function deleteEmployee(employeeId) {
+            if (confirm(`Are you sure you want to delete ${employeeId}?`)) {
+                db.collection('users').doc(employeeId).delete().then(() => {
+                    alert('Employee deleted successfully');
+                    loadEmployees(); // รีโหลดรายการพนักงาน
+                }).catch((error) => {
+                    console.error('Error deleting employee:', error);
+                });
+            }
+        }
+
+        // ฟังก์ชันรีเซ็ตรหัสผ่าน
+        function resetPassword(employeeId) {
+            if (confirm(`Are you sure you want to reset password for ${employeeId}?`)) {
+                db.collection('users').doc(employeeId).update({
+                    password: '0000',
+                    userId: '' // ล้าง userId เมื่อรีเซ็ตรหัสผ่าน
+                }).then(() => {
+                    alert('Password reset successfully');
+                    loadEmployees(); // รีโหลดรายการพนักงาน
+                }).catch((error) => {
+                    console.error('Error resetting password:', error);
+                });
+            }
+        }
+
+        // ฟังก์ชันจัดเรียงตารางพนักงาน
+        function sortTable(columnIndex) {
+            const tbody = document.querySelector('#employeeTable tbody');
+            const rows = Array.from(tbody.rows);
+
+            rows.sort((a, b) => {
+                const cellA = a.cells[columnIndex].innerText.toLowerCase();
+                const cellB = b.cells[columnIndex].innerText.toLowerCase();
+
+                if (cellA < cellB) return sortDirection ? -1 : 1;
+                if (cellA > cellB) return sortDirection ? 1 : -1;
+                return 0;
+            });
+
+            tbody.innerHTML = ''; // ล้างแถวที่มีอยู่
+            rows.forEach(row => tbody.appendChild(row));
+
+            sortDirection = !sortDirection;
+        }
+
+        // ฟังก์ชันค้นหาพนักงาน
+        document.getElementById('searchEmployee').addEventListener('input', function() {
+            loadEmployees(this.value); // รีโหลดพนักงานตามคำค้นหา
+        });
+    </script>
+</body>
+</html>
